@@ -84,3 +84,5 @@ frontend/dist/
 # Temporary files
 tmp/
 temp/
+# Kaggle credentials
+.kaggle/kaggle.json

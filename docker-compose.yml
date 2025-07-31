@@ -1,0 +1,29 @@
+services:
+  ai-detection-api:
+    build: .
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./src:/app/src
+    environment:
+      - PYTHONPATH=/app
+      - MODEL_PATH=/app/models
+      - DATA_PATH=/app/data
+      - REDIS_URL=redis://redis:6380
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  redis_data:

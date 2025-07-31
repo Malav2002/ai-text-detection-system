@@ -43,4 +43,5 @@ flake8>=6.0.0
 
 # Model evaluation
 wandb>=0.15.0
-tensorboard>=2.13.0
+tensorboard>=2.13.0skaggle>=1.5.16
+kaggle>=1.5.16
