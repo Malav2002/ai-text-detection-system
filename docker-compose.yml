@@ -25,5 +25,18 @@ services:
       - redis_data:/data
     restart: unless-stopped
 
+  frontend:
+    build: ./frontend
+    ports:
+      - "3002:3000"
+    depends_on:
+      - ai-detection-api
+    environment:
+      - REACT_APP_API_URL=http://localhost:8001
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    restart: unless-stopped
+
 volumes:
   redis_data:

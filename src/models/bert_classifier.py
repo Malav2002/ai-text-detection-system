@@ -302,9 +302,15 @@ class BERTTrainer:
     
     def load_model(self, path: str):
         """Load model state"""
-        checkpoint = torch.load(path, map_location=self.device)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        logger.info(f"Model loaded from: {path}")
+        try:
+            # Try with weights_only=False for older checkpoints
+            checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            logger.info(f"Model loaded from: {path}")
+        except Exception as e:
+            logger.error(f"Failed to load model: {e}")
+            logger.info("Model loading failed, using fresh initialized model")
+            raise e
 
 def create_bert_model(model_name: str = "bert-base-uncased") -> BERTAIDetector:
     """Factory function to create BERT model"""

@@ -5,9 +5,19 @@ import os
 import sys
 from typing import List, Optional
 import logging
+import time
+import torch
+from pathlib import Path
 
 # Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+try:
+    from models.bert_classifier import BERTAIDetector, BERTTrainer
+except ImportError:
+    print("BERT models not available, using dummy predictions")
+    BERTAIDetector = None
+    BERTTrainer = None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,10 +29,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware for frontend
+# CORS middleware - Allow all origins for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://frontend:3000"],
+    allow_origins=["*"],  # In production, specify exact origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,17 +53,44 @@ class HealthResponse(BaseModel):
     status: str
     models_loaded: List[str]
 
-# Global variables for models (will be loaded on startup)
+# Global variables for models
 models = {}
+device = None
 
 @app.on_event("startup")
 async def load_models():
     """Load pre-trained models on startup"""
-    logger.info("Loading AI detection models...")
-    # TODO: Implement model loading
-    # models["bert"] = load_bert_model()
-    # models["roberta"] = load_roberta_model()
-    logger.info("Models loaded successfully")
+    global models, device
+    
+    logger.info("Starting AI detection system...")
+    
+    # Determine device
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    logger.info(f"Using device: {device}")
+    
+    # Try to load BERT model if available
+    if BERTAIDetector:
+        try:
+            model_path = "./data/models/bert_ai_detector.pt"
+            
+            if Path(model_path).exists():
+                logger.info("Loading trained BERT model...")
+                model = BERTAIDetector(model_name="bert-base-uncased")
+                trainer = BERTTrainer(model, device=device)
+                trainer.load_model(model_path)
+                models["bert"] = model
+                logger.info("✅ Trained BERT model loaded successfully")
+            else:
+                logger.info("Loading fresh BERT model...")
+                model = BERTAIDetector(model_name="bert-base-uncased")
+                model.to(device)
+                models["bert"] = model
+                logger.info("✅ Fresh BERT model loaded")
+        except Exception as e:
+            logger.error(f"Failed to load BERT model: {e}")
+            logger.info("Using dummy predictions")
+    else:
+        logger.info("BERT models not available, using dummy predictions")
 
 @app.get("/", response_model=dict)
 async def root():
@@ -61,6 +98,8 @@ async def root():
     return {
         "message": "AI Text Detection System API",
         "version": "1.0.0",
+        "status": "running",
+        "models_loaded": list(models.keys()),
         "endpoints": {
             "predict": "/predict",
             "predict_file": "/predict/file",
@@ -81,13 +120,21 @@ async def health_check():
 async def predict_text(input_data: TextInput):
     """Predict if text is AI-generated or human-written"""
     try:
-        import time
         start_time = time.time()
         
-        # TODO: Implement actual prediction logic
-        # For now, return dummy response
-        prediction = "Human-written"  # Placeholder
-        confidence = 0.85  # Placeholder
+        if "bert" in models:
+            # Use actual BERT model
+            model = models["bert"]
+            prediction_int = model.predict([input_data.text], device=device)[0]
+            probabilities = model.predict_proba([input_data.text], device=device)[0]
+            
+            prediction = "AI-generated" if prediction_int == 1 else "Human-written"
+            confidence = float(max(probabilities))
+        else:
+            # Use dummy predictions
+            import random
+            prediction = random.choice(["AI-generated", "Human-written"])
+            confidence = random.uniform(0.6, 0.95)
         
         processing_time = time.time() - start_time
         
@@ -102,37 +149,34 @@ async def predict_text(input_data: TextInput):
         logger.error(f"Prediction error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
-@app.post("/predict/file", response_model=PredictionResponse)
+@app.post("/predict/file")
 async def predict_file(file: UploadFile = File(...), model_type: str = "bert"):
-    """Predict from uploaded file (PDF, TXT, DOCX, or image)"""
+    """Predict from uploaded file (placeholder)"""
     try:
-        import time
         start_time = time.time()
-        
-        # Check file type
-        allowed_types = {
-            "text/plain": "txt",
-            "application/pdf": "pdf",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-            "image/jpeg": "jpg",
-            "image/png": "png"
-        }
-        
-        if file.content_type not in allowed_types:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Unsupported file type: {file.content_type}"
-            )
         
         # Read file content
         content = await file.read()
         
-        # TODO: Implement text extraction based on file type
-        # extracted_text = extract_text_from_file(content, file.content_type)
+        # For now, just extract text from plain text files
+        if file.content_type == "text/plain":
+            extracted_text = content.decode('utf-8')
+        else:
+            # Placeholder for other file types
+            extracted_text = "File processing coming soon for this file type."
         
-        # TODO: Implement actual prediction
-        prediction = "AI-generated"  # Placeholder
-        confidence = 0.72  # Placeholder
+        # Use the same prediction logic as text
+        if "bert" in models:
+            model = models["bert"]
+            prediction_int = model.predict([extracted_text], device=device)[0]
+            probabilities = model.predict_proba([extracted_text], device=device)[0]
+            
+            prediction = "AI-generated" if prediction_int == 1 else "Human-written"
+            confidence = float(max(probabilities))
+        else:
+            import random
+            prediction = random.choice(["AI-generated", "Human-written"])
+            confidence = random.uniform(0.6, 0.95)
         
         processing_time = time.time() - start_time
         
@@ -146,15 +190,6 @@ async def predict_file(file: UploadFile = File(...), model_type: str = "bert"):
     except Exception as e:
         logger.error(f"File prediction error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"File prediction failed: {str(e)}")
-
-@app.get("/models")
-async def list_available_models():
-    """List available models"""
-    return {
-        "available_models": ["bert", "roberta", "distilbert"],
-        "loaded_models": list(models.keys()),
-        "default_model": "bert"
-    }
 
 if __name__ == "__main__":
     import uvicorn
